@@ -1,0 +1,13 @@
+[package]
+name = "rmclient"
+version = "0.1.0"
+edition = "2021"
+license = "NCSA"
+authors = ["Naren Dasan <naren@narendasan.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rmapi = { path = "../rmapi" }
+clap = { version = "4.5.17", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
