@@ -2,7 +2,21 @@
 name = "rmapi"
 version = "0.1.0"
 edition = "2021"
+license = "NCSA"
+authors = ["Naren Dasan <naren@narendasan.com>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+log = "0.4.14"
+uuid = { version = "1.10.0", features = [
+    "v4",
+    "fast-rng",
+    "macro-diagnostics",
+] }
+serde_json = "1.0.128"
+clap = { version = "4.5.17", features = ["derive"] }
+serde = { version = "1.0.210", features = ["derive"] }
+const_format = "0.2.33"
