@@ -2,6 +2,8 @@ use crate::endpoints;
 
 use crate::error::Error;
 
+use tokio::fs::File;
+
 use log;
 
 /// Represents a client for interacting with the reMarkable Cloud API.
@@ -12,7 +14,7 @@ pub struct Client {
     /// The authentication token used for API requests.
     pub auth_token: String,
     /// An optional URL for the storage API endpoint.
-    storage_url: Option<String>,
+    pub storage_url: String,
 }
 
 /// TODO: Token caching in library or in the app (feels like app but so many operations need to be atomic)?
@@ -32,12 +34,13 @@ impl Client {
     /// # Errors
     ///
     /// This function will return an error if writing the token file fails.
-    pub fn from_token(auth_token: &str) -> Client {
+    pub async fn from_token(auth_token: &str) -> Result<Client, Error> {
         log::debug!("New client with auth token: {:?}", auth_token);
-        Client {
+        //let storage_url = endpoints::discover_storage(auth_token).await?;
+        Ok(Client {
             auth_token: auth_token.to_string(),
-            storage_url: None,
-        }
+            storage_url: endpoints::STORAGE_API_URL_ROOT.to_string(),
+        })
     }
 
     /// Creates a new `Client` instance by registering with the reMarkable Cloud using a provided code.
@@ -58,9 +61,12 @@ impl Client {
     /// - The registration process with the reMarkable Cloud fails.
     /// - Creating a new `Client` from the obtained token fails.
     pub async fn new(code: &str) -> Result<Client, Error> {
-        log::debug!("Registering client with reMarkable Cloud using code: {:?}", code);
+        log::debug!(
+            "Registering client with reMarkable Cloud using code: {:?}",
+            code
+        );
         let auth_token = endpoints::register_client(code).await?;
-        Ok(Client::from_token(&auth_token))
+        Ok(Client::from_token(&auth_token).await?)
     }
 
     /// Refreshes the authentication token for the client.
@@ -85,6 +91,18 @@ impl Client {
         log::debug!("Refreshing auth token");
         self.auth_token = endpoints::refresh_token(&self.auth_token).await?;
         log::debug!("New auth token: {:?}", self.auth_token);
+        Ok(())
+    }
+
+    pub async fn sync_root(&self) -> Result<(), Error> {
+        log::debug!("Getting items stored in the cloud");
+        endpoints::sync_root(&self.storage_url, &self.auth_token).await?;
+        Ok(())
+    }
+
+    pub async fn upload_file(&self, file: File) -> Result<(), Error> {
+        log::debug!("Uploading a file to the cloud");
+        endpoints::upload_file(&self.storage_url, &self.auth_token, file).await?;
         Ok(())
     }
 

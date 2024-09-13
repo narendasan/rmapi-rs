@@ -1,23 +1,39 @@
 use crate::error::Error;
 use const_format::formatcp;
 use log;
-use reqwest;
+use reqwest::{self, Body};
 use serde::{Deserialize, Serialize};
-
+use tokio::fs::File;
+use tokio_util::codec::{BytesCodec, FramedRead};
 use uuid::Uuid;
 
-const STORAGE_API_URL_ROOT: &str =
-    "https://document-storage-production-dot-remarkable-production.appspot.com";
 const AUTH_API_URL_ROOT: &str = "https://webapp-prod.cloud.remarkable.engineering";
-
-const STORAGE_API_VERSION: &str = "1";
-const STORAGE_API_URL: &str =
-    formatcp!("{STORAGE_API_URL_ROOT}/service/json/{STORAGE_API_VERSION}/document-storage");
-
 const AUTH_API_VERSION: &str = "2";
 const NEW_CLIENT_URL: &str =
     formatcp!("{AUTH_API_URL_ROOT}/token/json/{AUTH_API_VERSION}/device/new");
 const NEW_TOKEN_URL: &str = formatcp!("{AUTH_API_URL_ROOT}/token/json/{AUTH_API_VERSION}/user/new");
+
+const SERVICE_DISCOVERY_API_URL_ROOT: &str =
+    "https://service-manager-production-dot-remarkable-production.appspot.com";
+const STORAGE_API_VERSION: &str = "1";
+const STORAGE_DISCOVERY_API_URL: &str = formatcp!(
+    "{SERVICE_DISCOVERY_API_URL_ROOT}/service/json/{STORAGE_API_VERSION}/document-storage"
+);
+const GROUP_AUTH: &str = "auth0%7C5a68dc51cb30df1234567890";
+const STORAGE_DISCOVERY_API_VERSION: &str = "2";
+
+pub const STORAGE_API_URL_ROOT: &str = "https://internal.cloud.remarkable.com";
+pub const WEBAPP_API_URL_ROOT: &str = "https://web.eu.tectonic.remarkable.com";
+
+const DOC_UPLOAD_ENDPOINT: &str = "doc/v2/files";
+const ROOT_SYNC_ENDPOINT: &str = "sync/v4/root";
+const FILE_SYNC_ENDPOINT: &str = "sync/v3/files";
+
+const ITEM_LIST_ENDPOINT: &str = "document-storage/json/2/docs";
+const ITEM_ENDPOINT: &str = "document-storage/json/2/";
+const UPLOAD_REQUEST_ENDPOINT: &str = "document-storage/json/2/upload/request";
+const UPLOAD_STATUS_ENDPOINT: &str = "document-storage/json/2/upload/update-status";
+//const DELETE_ENDPOINT: &str = "/document-storage/json/2/delete";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -121,6 +137,187 @@ pub async fn refresh_token(auth_token: &str) -> Result<String, Error> {
         }
         Err(e) => {
             log::error!("Error refreshing token: {}", e);
+            Err(Error::from(e))
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[allow(non_snake_case)]
+struct StorageInfo {
+    Status: String,
+    Host: String,
+}
+
+pub async fn discover_storage(auth_token: &str) -> Result<String, Error> {
+    log::info!("Discovering storage host");
+    let discovery_request = vec![
+        ("enviorment", "production"),
+        ("group", GROUP_AUTH),
+        ("apiVer", STORAGE_DISCOVERY_API_VERSION),
+    ];
+    let client = reqwest::Client::new();
+    let response = client
+        .get(STORAGE_DISCOVERY_API_URL)
+        .bearer_auth(auth_token)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .query(&discovery_request)
+        .send()
+        .await?;
+
+    log::debug!("{:?}", response);
+
+    match response.error_for_status() {
+        Ok(res) => {
+            let storage_info = res.json::<StorageInfo>().await?;
+            log::debug!("Storage Info: {:?}", storage_info);
+            Ok(format!("https://{0}", storage_info.Host))
+        }
+        Err(e) => {
+            log::error!("Error discovering storage: {}", e);
+            Err(Error::from(e))
+        }
+    }
+}
+
+pub async fn sync_root(storage_url: &str, auth_token: &str) -> Result<String, Error> {
+    log::info!("Listing items in the rmCloud");
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{}/{}", storage_url, ROOT_SYNC_ENDPOINT))
+        .bearer_auth(auth_token)
+        .header("Accept", "application/json")
+        .header("rm-filename", "roothash")
+        .send()
+        .await?;
+
+    log::debug!("{:?}", response);
+
+    match response.error_for_status() {
+        Ok(res) => {
+            let root_hash = res.text().await?;
+            log::debug!("Root Hash: {}", root_hash);
+            Ok(root_hash)
+        }
+        Err(e) => {
+            log::error!("Error listing items: {}", e);
+            Err(Error::from(e))
+        }
+    }
+}
+
+// pub async fn put_content(storage_url: &str, auth_token: &str, content) {
+//     log::info!("Listing items in the rmCloud");
+//     let client = reqwest::Client::new();
+//     let response = client
+//         .get(format!("{}/{}", storage_url, ROOT_SYNC_ENDPOINT))
+//         .bearer_auth(auth_token)
+//         .header("Accept", "application/json")
+//         .header("rm-filename", "roothash")
+//         .send()
+//         .await?;
+
+//     log::debug!("{:?}", response);
+
+//     match response.error_for_status() {
+//         Ok(res) => {
+//             let root_hash = res.text().await?;
+//             log::debug!("Root Hash: {}", root_hash);
+//             Ok(root_hash)
+//         }
+//         Err(e) => {
+//             log::error!("Error listing items: {}", e);
+//             Err(Error::from(e))
+//         }
+//     }
+// }
+
+pub async fn upload_request(_: &str, auth_token: &str) -> Result<String, Error> {
+    log::info!("Requesting to upload a document to the rmCloud");
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{}/{}", WEBAPP_API_URL_ROOT, DOC_UPLOAD_ENDPOINT))
+        .bearer_auth(auth_token)
+        .header("Accept", "application/json")
+        .header("rm-Source", "WebLibrary")
+        .header("Content-Type", "application/pdf")
+        .send()
+        .await?;
+
+    log::debug!("{:?}", response);
+
+    match response.error_for_status() {
+        Ok(res) => {
+            let upload_request_resp = res.text().await?;
+            log::debug!("Upload request response: {}", upload_request_resp);
+            Ok(upload_request_resp)
+        }
+        Err(e) => {
+            log::error!("Error listing items: {}", e);
+            Err(Error::from(e))
+        }
+    }
+}
+
+pub async fn upload_file(_: &str, auth_token: &str, file: File) -> Result<String, Error> {
+    log::info!("Requesting to upload a document to the rmCloud");
+    let stream = FramedRead::new(file, BytesCodec::new());
+    let body = Body::wrap_stream(stream);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/{}", WEBAPP_API_URL_ROOT, DOC_UPLOAD_ENDPOINT))
+        .bearer_auth(auth_token)
+        .header("Accept-Encoding", "gzip, deflate, br")
+        .header("rm-Source", "WebLibrary")
+        .header(
+            "rm-Meta",
+            ""
+        )
+        .header("Content-Type", "application/pdf")
+        .body(body)
+        .send()
+        .await?;
+
+    log::debug!("{:?}", response);
+
+    match response.error_for_status() {
+        Ok(res) => {
+            let upload_request_resp = res.text().await?;
+            log::debug!("Upload file response: {}", upload_request_resp);
+            Ok(upload_request_resp)
+        }
+        Err(e) => {
+            log::error!("Error listing items: {}", e);
+            Err(Error::from(e))
+        }
+    }
+}
+
+pub async fn get_files(_: &str, auth_token: &str) -> Result<String, Error> {
+    log::info!("Requesting files on the rmCloud");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{}/{}", WEBAPP_API_URL_ROOT, DOC_UPLOAD_ENDPOINT))
+        .bearer_auth(auth_token)
+        .header("Accept", "application/json")
+        .header("rm-Source", "WebLibrary")
+        .header("Content-Type", "application/pdf")
+        .send()
+        .await?;
+
+    log::debug!("{:?}", response);
+
+    match response.error_for_status() {
+        Ok(res) => {
+            let upload_request_resp = res.text().await?;
+            log::debug!("Get files request response: {}", upload_request_resp);
+            Ok(upload_request_resp)
+        }
+        Err(e) => {
+            log::error!("Error listing items: {}", e);
             Err(Error::from(e))
         }
     }

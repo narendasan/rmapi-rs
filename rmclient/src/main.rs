@@ -1,19 +1,18 @@
 use clap::Parser;
 use std::path::Path;
 
-
-
-use std::process;
-use std::path::PathBuf;
 use dirs::cache_dir;
 use rmapi::Client;
+use std::path::PathBuf;
+use std::process;
 
 mod rmclient;
 use crate::rmclient::error::Error;
+use tokio::fs::File;
 
 pub fn default_token_file_path() -> PathBuf {
     cache_dir()
-        .unwrap_or_else(|| {PathBuf::from("/tmp")})
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("rmapi/auth_token")
 }
 
@@ -32,7 +31,7 @@ struct Args {
         help = "Path to the file that holds a previously generated session token",
         default_value = default_token_file_path().into_os_string()
     )]
-    auth_token_file: PathBuf
+    auth_token_file: PathBuf,
 }
 
 async fn write_token_file(auth_token: &str, auth_token_file: &Path) -> Result<(), Error> {
@@ -78,11 +77,13 @@ async fn client_from_token_file(auth_token_file: &Path) -> Result<Client, Error>
         Err(Error::TokenFileInvalid)
     } else {
         let auth_token = tokio::fs::read_to_string(&auth_token_file).await?;
-        log::debug!("Using token from {:?} to create a new client", auth_token_file);
-        Ok(Client::from_token(&auth_token))
+        log::debug!(
+            "Using token from {:?} to create a new client",
+            auth_token_file
+        );
+        Ok(Client::from_token(&auth_token).await?)
     }
 }
-
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -95,13 +96,18 @@ async fn main() -> Result<(), Error> {
         client = Client::new(&code).await?;
     } else if args.auth_token_file.exists() {
         client = client_from_token_file(&args.auth_token_file).await?;
-        refresh_client_token(&mut client, &args.auth_token_file).await?;
     } else {
         eprintln!("No token file found at {:?}, please either correct the path with `-t` or provide a new verification code with `-c`", args.auth_token_file);
         process::exit(1);
     }
 
     println!("Client token: {:?}", client.auth_token);
+    println!("Storage url: {:?}", client.storage_url);
+    //client.sync_root().await?;
+
+    let file_path = Path::new("test2.pdf");
+    let file = File::open(file_path).await?;
+    client.upload_file(file).await?;
 
     Ok(())
 }
