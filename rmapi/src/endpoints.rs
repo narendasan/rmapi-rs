@@ -65,10 +65,19 @@ pub async fn register_client(code: &str) -> Result<String, Error> {
         .send()
         .await?;
 
-    log::debug!("Response: {:?}", response);
+    log::debug!("{:?}", response);
 
-    let token = response.text().await?;
-    return Ok(token);
+    return match response.error_for_status() {
+        Ok(res) => {
+            let token = res.text().await?;
+            log::debug!("Token: {}", token);
+            Ok(token)
+        }
+        Err(e) => {
+            log::error!("Error registering client: {}", e);
+            Err(Error::from(e))
+        }
+    };
 }
 
 /// Refreshes the authentication token for the reMarkable cloud service.
@@ -98,6 +107,7 @@ pub async fn refresh_token(auth_token: &str) -> Result<String, Error> {
         .post(NEW_TOKEN_URL)
         .bearer_auth(auth_token)
         .header("Accept", "application/json")
+        .header("Content-Length", "0")
         .send()
         .await?;
 

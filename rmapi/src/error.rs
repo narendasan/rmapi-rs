@@ -12,11 +12,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::IoError(ref err) => write!(f, "Io error: {}", err),
-            Error::ReqwestError(ref err) => {
-                let reqwest_error: &reqwest::Error = err;
-                return write!(f, "Reqwest error: {}, caused by: {}", reqwest_error, reqwest_error.source().unwrap())
-            }
+            Error::IoError(ref err) => err.fmt(f),
+            Error::ReqwestError(ref err) => err.fmt(f),
         }
     }
 }

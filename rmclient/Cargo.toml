@@ -11,3 +11,4 @@ authors = ["Naren Dasan <naren@narendasan.com>"]
 rmapi = { path = "../rmapi" }
 clap = { version = "4.5.17", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
+env_logger = "0.11.5"
