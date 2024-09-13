@@ -1,15 +1,20 @@
 [package]
 name = "rmapi"
-version = "0.1.0"
-edition = "2021"
-license = "NCSA"
-authors = ["Naren Dasan <naren@narendasan.com>"]
+description = "A command line client for the reMarkable Cloud API"
+readme = "README.md"
+keywords = ["remarkable", "cloud", "api", "client"]
+categories = []
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1", features = ["full"] }
 log = "0.4.14"
 uuid = { version = "1.10.0", features = [
     "v4",

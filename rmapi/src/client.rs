@@ -1,108 +1,130 @@
-use crate::rmapi::endpoints;
-use std::path::Path;
-use uuid::Uuid;
+use crate::endpoints;
 
-struct Client {
-    token: String,
+use crate::error::Error;
+
+use log;
+
+/// Represents a client for interacting with the reMarkable Cloud API.
+///
+/// This struct holds the authentication token, the path to the token file,
+/// and an optional storage URL for the client.
+pub struct Client {
+    /// The authentication token used for API requests.
+    pub auth_token: String,
+    /// An optional URL for the storage API endpoint.
     storage_url: Option<String>,
 }
 
+/// TODO: Token caching in library or in the app (feels like app but so many operations need to be atomic)?
 impl Client {
-    /// Creates a new `Client` instance with the provided token.
+    /// Creates a new `Client` instance from an existing auth token.
     ///
     /// # Arguments
     ///
-    /// * `token` - A `String` representing the authentication token.
+    /// * `auth_token` - A string slice containing the authentication token.
     ///
     /// # Returns
     ///
-    /// A new `Client` instance.
-    pub async fn from_token(token: String) -> Client {
+    /// A `Result` containing:
+    /// - `Ok(Client)`: A new `Client` instance with the provided token.
+    /// - `Err(Error)`: An error if writing the token file fails.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if writing the token file fails.
+    pub fn from_token(auth_token: &str) -> Client {
+        log::debug!("New client with auth token: {:?}", auth_token);
         Client {
-            token: token,
+            auth_token: auth_token.to_string(),
             storage_url: None,
         }
     }
 
-    /// Creates a new `Client` instance by obtaining a token.
+    /// Creates a new `Client` instance by registering with the reMarkable Cloud using a provided code.
     ///
-    /// This function attempts to register a client and obtain a new token.
+    /// # Arguments
     ///
-    /// # Returns
-    ///
-    /// A `Result` containing:
-    /// - `Ok(Client)`: A new `Client` instance with the obtained token.
-    /// - `Err(Error)`: An error if the token retrieval fails.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the token retrieval process fails.
-    pub async fn new() -> Result<Client, Error> {
-        let token = endpoints::register_client().await?;
-        return Ok(Client::from_token(token));
-    }
-
-    /// Refreshes the token for the current client.
-    ///
-    /// This function attempts to refresh the authentication token using the current token.
+    /// * `code` - A string slice containing the registration code.
     ///
     /// # Returns
     ///
     /// A `Result` containing:
-    /// - `Ok(())`: If the token refresh was successful.
-    /// - `Err(Error)`: An error if the token refresh fails.
+    /// - `Ok(Client)`: A new `Client` instance if registration and token creation are successful.
+    /// - `Err(Error)`: An error if registration fails or creating the client from the token fails.
     ///
     /// # Errors
     ///
-    /// This function will return an error if the token refresh process fails.
-    pub async fn refresh_token() -> Result<(), Error> {
-        self.token = endpoints::refresh_token(self.token).await?;
-        return Ok(());
+    /// This function will return an error if:
+    /// - The registration process with the reMarkable Cloud fails.
+    /// - Creating a new `Client` from the obtained token fails.
+    pub async fn new(code: &str) -> Result<Client, Error> {
+        log::debug!("Registering client with reMarkable Cloud using code: {:?}", code);
+        let auth_token = endpoints::register_client(code).await?;
+        Ok(Client::from_token(&auth_token))
     }
 
-    pub async fn save_token(path: Path) -> Result<(), Error> {
-        let mut file = File::create(path)?;
-        file.write_all(self.token.as_bytes())?;
-        return Ok(());
+    /// Refreshes the authentication token for the client.
+    ///
+    /// This method performs the following steps:
+    /// 1. Requests a new token from the server using the current token.
+    /// 2. Updates the client's auth_token with the new token.
+    /// 3. Saves the new token to the auth_token_file.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing:
+    /// - `Ok(())`: If the token refresh and saving are successful.
+    /// - `Err(Error)`: If any step in the refresh process fails.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - The token refresh request to the server fails.
+    /// - Writing the new token to the auth_token_file fails.
+    pub async fn refresh_token(&mut self) -> Result<(), Error> {
+        log::debug!("Refreshing auth token");
+        self.auth_token = endpoints::refresh_token(&self.auth_token).await?;
+        log::debug!("New auth token: {:?}", self.auth_token);
+        Ok(())
     }
 
-    pub async fn get_storage_url(&mut self) -> Result<String, Error> {
-        let client = reqwest::Client::new();
-        let response = client
-            .get(formatcp!("{STORAGE_API_URL}/"))
-            .header("Authorization", formatcp!("Bearer {self.token}"))
-            .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
-            .header("User-Agent", "google-chrome")
-            .send()
-            .await?;
+    // pub async fn get_storage_url(&mut self) -> Result<String, Error> {
+    //     let client = reqwest::Client::new();
+    //     let response = client
+    //         .get(formatcp!("{STORAGE_API_URL}/"))
+    //         .header("Authorization", formatcp!("Bearer {self.token}"))
+    //         .header("Content-Type", "application/json")
+    //         .header("Accept", "application/json")
+    //         .header("User-Agent", "google-chrome")
+    //         .send()
+    //         .await?;
 
-        let storage_url: String = response.json().await?;
-        self.storage_url = Some(storage_url);
-        return Ok(storage_url);
-    }
+    //     let storage_url: String = response.json().await?;
+    //     self.storage_url = Some(storage_url);
+    //     return Ok(storage_url);
+    // }
 
-    pub async fn get_collection(&self, id: Uuid) -> Result<Collection, Error> {
-        let client = reqwest::Client::new();
-        let response = client
-            .get(formatcp!("{STORAGE_API_URL}/{id}"))
-            .header("Authorization", formatcp!("Bearer {self.token}"))
-            .send()
-            .await?;
+    // pub async fn get_collection(&self, id: Uuid) -> Result<Collection, Error> {
+    //     let client = reqwest::Client::new();
+    //     let response = client
+    //         .get(formatcp!("{STORAGE_API_URL}/{id}"))
+    //         .header("Authorization", formatcp!("Bearer {self.token}"))
+    //         .send()
+    //         .await?;
 
-        let collection: Collection = response.json().await?;
-        return Ok(collection);
-    }
+    //     let collection: Collection = response.json().await?;
+    //     return Ok(collection);
+    // }
 
-    pub async fn get_document(&self, id: Uuid) -> Result<Document, Error> {
-        let client = reqwest::Client::new();
-        let response = client
-            .get(formatcp!("{STORAGE_API_URL}/{id}"))
-            .header("Authorization", formatcp!("Bearer {self.token}"))
-            .send()
-            .await?;
+    // pub async fn get_document(&self, id: Uuid) -> Result<Document, Error> {
+    //     let client = reqwest::Client::new();
+    //     let response = client
+    //         .get(formatcp!("{STORAGE_API_URL}/{id}"))
+    //         .header("Authorization", formatcp!("Bearer {self.token}"))
+    //         .send()
+    //         .await?;
 
-        let document: Document = response.json().await?;
-        return Ok(document);
-    }
+    //     let document: Document = response.json().await?;
+    //     return Ok(document);
+    // }
 }

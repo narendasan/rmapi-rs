@@ -1,9 +1,9 @@
 use crate::error::Error;
 use const_format::formatcp;
-use log::{debug, error, info, warn};
+use log;
 use reqwest;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
 use uuid::Uuid;
 
 const STORAGE_API_URL_ROOT: &str =
@@ -50,7 +50,7 @@ struct ClientRegistation {
 /// * The response cannot be parsed
 
 pub async fn register_client(code: &str) -> Result<String, Error> {
-    info!("Registering client with code: {}", code);
+    log::info!("Registering client with code: {}", code);
     let registration_info = ClientRegistation {
         code: code.to_string(),
         deviceDesc: "desktop-windows".to_string(),
@@ -67,7 +67,7 @@ pub async fn register_client(code: &str) -> Result<String, Error> {
 
     log::debug!("{:?}", response);
 
-    return match response.error_for_status() {
+    match response.error_for_status() {
         Ok(res) => {
             let token = res.text().await?;
             log::debug!("Token: {}", token);
@@ -77,7 +77,7 @@ pub async fn register_client(code: &str) -> Result<String, Error> {
             log::error!("Error registering client: {}", e);
             Err(Error::from(e))
         }
-    };
+    }
 }
 
 /// Refreshes the authentication token for the reMarkable cloud service.
@@ -101,7 +101,7 @@ pub async fn register_client(code: &str) -> Result<String, Error> {
 /// * The server responds with an error status
 /// * The response cannot be parsed
 pub async fn refresh_token(auth_token: &str) -> Result<String, Error> {
-    info!("Refreshing token");
+    log::info!("Refreshing token");
     let client = reqwest::Client::new();
     let response = client
         .post(NEW_TOKEN_URL)
@@ -111,6 +111,17 @@ pub async fn refresh_token(auth_token: &str) -> Result<String, Error> {
         .send()
         .await?;
 
-    let token = response.text().await?;
-    return Ok(token);
+    log::debug!("{:?}", response);
+
+    match response.error_for_status() {
+        Ok(res) => {
+            let token = res.text().await?;
+            log::debug!("New Token: {}", token);
+            Ok(token)
+        }
+        Err(e) => {
+            log::error!("Error refreshing token: {}", e);
+            Err(Error::from(e))
+        }
+    }
 }
