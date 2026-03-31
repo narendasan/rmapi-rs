@@ -15,6 +15,7 @@ use std::io::Write;
 use std::str::FromStr;
 use uuid::Uuid;
 use zip;
+use futures::stream::{self, StreamExt};
 
 type BoxedFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>;
@@ -611,7 +612,13 @@ impl RmClient {
                     .values()
                     .map(|child| self.download_entry(child, new_dir.clone(), true))
                     .collect::<Result<Vec<_>, _>>()?;
-                futures::future::try_join_all(futures).await?;
+
+                stream::iter(futures)
+                    .buffer_unordered(10)
+                    .collect::<Vec<Result<(), Error>>>()
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<()>, Error>>()?;
             } else {
                 let target_base = target_path.join(node.name());
                 self.download_document(&node.document.id, &target_base)
